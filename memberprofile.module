@@ -1,0 +1,258 @@
+<?php
+# this function is the menu handler for our drupal form/module.
+# it is an implementation of the Drupal hook_menu function.
+function memberprofile_menu() {
+  $items = array();
+  $items['memberprofile/form'] = array(
+    'title' => t('Your Member Profile'),
+    'page callback' => 'memberprofile_form',
+    'access arguments' => array('access content'),
+    'description' => t('Andrew Harper - Member profile form'),
+    'type' => MENU_CALLBACK,
+  );
+  
+  // Disable the "Edit" tab on the user screen
+  $items['user/%/edit'] = array(
+    'title' => t('Your Member Profile'),
+    'page callback' => 'memberprofile_form',
+    'access arguments' => array('access content'),
+    'description' => t('Andrew Harper - Member profile form'),
+    'type' => MENU_CALLBACK,
+  );
+  
+  return $items;
+}
+
+
+/**
+ * The "callback" function; when the menu item or url is
+ * accessed, this function will be called
+ */
+function memberprofile_form() {
+	return drupal_get_form('memberprofile_form1');
+}
+
+function memberprofile_form1($form_state) {
+	// ProfileField
+	global $user;
+	$show_change_pwd = true;
+	$form['divbox1_open'] = array(
+			'#type' => 'markup',
+			'#value' => '<div style="width: 45%; float: left; display: block;">',
+		);
+	$form['membernumber'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Member Number'),
+			'#default_value' => $user->member_data->MemberId,
+			'#disabled' => TRUE,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['username'] = array(
+		'#type' => 'textfield',
+		'#title' => t('User Name'),
+		'#default_value' => $user->member_data->UserName,
+		'#disabled' => TRUE,
+		'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['screenname'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Screen Name *'),
+			'#default_value' => $user->member_data->ScreenName,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	if($show_change_pwd){
+		$form['pwd_form'] = array(
+				'#type' => 'markup',
+				'#value' => '<a href="#pass-update-wrapper" id="pass-update-link">Change Password</a>',
+			);
+	}
+	$form['email'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Email'),
+			'#default_value' => $user->member_data->Email,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['prefix'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Prefix'),
+			'#default_value' => $user->member_data->Salutation,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['firstname'] = array(
+			'#type' => 'textfield',
+			'#title' => t('First Name'),
+			'#default_value' => $user->member_data->FirstName,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['lastname'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Last Name'),
+			'#default_value' => $user->member_data->LastName,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['suffix'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Suffix'),
+			'#default_value' => $user->member_data->Suffix,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['title'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Title'),
+			'#default_value' => $user->member_data->ProfessionalTitle,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['divbox1_close'] = array(
+			'#type' => 'markup',
+			'#value' => '</div>'
+		);
+	$form['divbox2_open'] = array(
+			'#type' => 'markup',
+			'#value' => '<div style="width: 45%; float: left; display: block;">'
+		);
+	$form['company'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Company'),
+			'#default_value' => $user->member_data->Address->BusinessName,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['line1'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Address Line 1'),
+			'#default_value' => $user->member_data->Address->Address1,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['line2'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Address Line 2'),
+			'#default_value' => $user->member_data->Address->Address2,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['line3'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Address Line 3'),
+			'#default_value' => $user->member_data->Address->Address3,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['city'] = array(
+			'#type' => 'textfield',
+			'#title' => t('City'),
+			'#default_value' => $user->member_data->Address->City,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['state'] = array(
+			'#type' => 'textfield',
+			'#title' => t('State'),
+			'#default_value' => $user->member_data->Address->State,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['country'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Country'),
+			'#default_value' => $user->member_data->Address->Country,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['zip'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Zip/Postal Code'),
+			'#default_value' => $user->member_data->Address->PostalCode,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+	$form['phone'] = array(
+			'#type' => 'textfield',
+			'#title' => t('Phone'),
+			'#default_value' => $user->member_data->Address->Phone,
+			'#attributes' => array('class' => 'ProfileField'),
+		);
+		
+	// An html submit button for our drupal form
+	$form['submit'] = array(
+			'#type' => 'submit',
+			'#value' => 'Update',
+			'#attributes' => array('class' => 'ProfileSubmit'),
+		);
+	$form['divbox2_close'] = array(
+			'#type' => 'markup',
+			'#value' => '</div>'
+		);
+	$form['divbox_clearfloat'] = array(
+			'#type' => 'markup',
+			'#value' => '<div style="clear: both;" />
+						 <div style="font-style:oblique;font-size:11px;padding-top:24px;">* Your screen name appears on your member comments, auction bids and any outgoing messages when you are logged in to AndrewHarper.com</div>'
+		);
+	return $form;
+}
+
+/** 
+ * Our drupal form submit handler (using a submit handler
+ * given by the default naming convention, i.e.,
+ * 'memberprofile_form1' plus '_submit')
+ */
+function memberprofile_form1_submit($form, &$form_state) {	
+	global $user;
+	watchdog("memberprofile", "user id:".$user->uid, NULL, WATCHDOG_DEBUG);
+	if($user->uid){
+		$membersvc = Setting::$harperservice_membershipservice.'?wsdl';
+		$client = new SoapClient($membersvc,array('trace' => 1, 'exceptions' => 0)); 	
+		$newdata = array(
+				'hashed_memberid' => ah_secure_get_hash($user->member_data->MemberId),
+				'salutation' => $form_state['values']['prefix'],
+				'firstname' => $form_state['values']['firstname'],
+				'lastname' => $form_state['values']['lastname'],
+				'suffix' => $form_state['values']['suffix'],
+				'professionaltitle' => $form_state['values']['title'],
+				'email' => $form_state['values']['email'],
+				'optin' => true,
+				'businessname' => $form_state['values']['company'],
+				'address1' => $form_state['values']['line1'],
+				'address2' => $form_state['values']['line2'],
+				'address3' => $form_state['values']['line3'],
+				'city' => $form_state['values']['city'],
+				'state' => $form_state['values']['state'],
+				'postalcode' => $form_state['values']['zip'],
+				'country' => $form_state['values']['country'],
+				'phone' => $form_state['values']['phone'],
+				'screenname' => $form_state['values']['screenname']
+			);
+		$update_result = $client->UpdateMember($newdata);			
+		if($update_result -> UpdateMemberResult -> TypedResponse -> Success == false)
+		{
+			drupal_set_message(t('An error occurred while updating your profile. Please try your request again'), 'error');
+			return; 
+		}
+		$copy_data = $user->member_data;	
+		
+		// For read-only fields, use what is already in the $user object
+		$copy_data->ScreenName = $form_state['values']['screenname'];
+		$copy_data->Salutation = $form_state['values']['prefix'];
+		$copy_data->FirstName = $form_state['values']['firstname'];
+		$copy_data->LastName = $form_state['values']['lastname'];
+		$copy_data->Suffix = $form_state['values']['suffix'];
+		$copy_data->ProfessionalTitle = $form_state['values']['title'];
+		$copy_data->Email = $form_state['values']['email'];
+		$copy_data->Address->BusinessName = $form_state['values']['company'];
+		$copy_data->Address->Address1 = $form_state['values']['line1'];
+		$copy_data->Address->Address2 = $form_state['values']['line2'];
+		$copy_data->Address->Address3 = $form_state['values']['line3'];;
+		$copy_data->Address->City = $form_state['values']['city'];
+		$copy_data->Address->State = $form_state['values']['state'];
+		$copy_data->Address->PostalCode = $form_state['values']['zip'];
+		$copy_data->Address->Country = $form_state['values']['country'];
+		$copy_data->Address->Phone = $form_state['values']['phone'];
+		
+		$user = user_save($user, array(
+				'member_data' => $copy_data
+			)
+		);
+		  
+		/** 
+		 * This code manually saves data to the "profile_values" table because
+		 * Drupal's user_save does not save profile data the way we would expect
+		 * see comments on this page http://api.drupal.org/api/drupal/modules--user--user.module/function/user_save/6 
+		 * Profile values - '5', 'Screen Name', 'profile_screen_name'
+		 **/
+		db_query("DELETE FROM {profile_values} WHERE fid = %d AND uid = %d", '5', $user->uid);
+		db_query("INSERT INTO {profile_values} (fid, uid, value) VALUES (%d, %d, '%s')", '5', $user->uid, $copy_data->ScreenName);		
+		drupal_set_message(t('Profile updated.'));
+	}
+}

@@ -1,0 +1,1078 @@
+<?php
+// ================
+// locals contains the service and harpernet urls (root htdocs folder)
+// ================
+include_once './locals.php';
+
+
+/* Time Constants for the click rule
+  "year"   => 29030400, // seconds in a year   (12 months)
+   "month"  => 2419200,  // seconds in a month  (4 weeks)
+   "week"   => 604800,   // seconds in a week   (7 days)
+   "day"    => 86400,    // seconds in a day    (24 hours)
+   "hour"   => 3600,     // seconds in an hour  (60 minutes)
+   "minute" => 60,       // seconds in a minute (60 seconds)
+   "second" => 1         // 1 second
+ */
+define('MAX_CLICKS', 10);
+define('RESET_TIME', 2592000);
+
+
+function andrewharper_menu(){	
+	return array(
+		'click_rule_ajax' => array(
+			'page callback' => 'andrewharper_click_rule_check_ajax',
+			'page arguments' => array(1),
+			'type' => MENU_CALLBACK,
+			'access callback' => 1,
+		),	
+	);
+		/*
+	$items['click_rule_ajax'] = array(
+		'page callback' => 'andrewharper_click_rule_check_ajax',
+		'page arguments' => array(1),
+		'type' => MENU_CALLBACK,
+    	'access callback' => 1,
+	);*/
+	
+	//return $items;
+}
+
+/**
+ * hook_init
+ *
+ * runs every page load
+ */
+function andrewharper_init() {		
+	global $user;
+	
+	//process uri for custom redirects
+	andrewharper_process_uri();
+	
+	//set session cookie for trial users
+	if( !isset($_COOKIE['session_id']) ) {
+		$session_id = uniqid();
+		setcookie('session_id', $session_id, time()+RESET_TIME );
+	}	
+	
+	//add a check for trial account uid 
+	//var_export($_SERVER);
+	if( arg(0) == 'user' ){
+		if($user->uid == 52){			
+			andrewharper_user_logout();
+		}
+	}
+	if(arg(0) == 'node' || drupal_is_front_page()){
+		if(($user->uid == 0) || $user->uid == 52){
+				andrewharper_login();
+				andrewharper_click_rule();
+			}	
+	}		
+
+	jquery_ui_add('ui.datepicker');
+}
+
+function andrewharper_login(){
+ $account = user_authenticate(array('name' => 'trial', 'pass' => 'trialpass'));
+}
+
+//This Function is to help process legacy urls and
+//redirect to their up-to-date counterparts
+function andrewharper_process_uri(){
+	$uri = _andrewharper_get_uri();	
+	_andrewharper_mobilesite_view($uri);
+	
+	/**
+	 * most of this switch statement replaced with ahredirect module
+	 */
+	switch( $uri ){
+		case '/Luxury-Travel/eAuctions/Default.aspx':
+		case '/AH_Com2/Consider/HarperMarketplace.aspx':
+		case '/Consideration/eAuctions/Default.aspx':
+		case '/Consideration/Luxury-Travel/eAuctions/AuctionDetail.aspx':
+		case '/AH_Com2/App/Marketplace/AuctionDetail.aspx':
+		case '/Marketplace':
+		case '/auctions':
+			global $user;   
+			$logged_in = user_is_logged_in();
+			if($logged_in == true)
+			{
+				$hash_cusid = ah_secure_get_hash($user->member_data->CusId);
+				$auction_url = Setting::$harpernet_auctions.'?MemberId='.$hash_cusid;
+			}	
+			elseif(1==3)//add elseif code here to process link to specific auction from email 
+			{
+				//get auction id from uri
+				$hash_cusid = ah_secure_get_hash($user->member_data->CusId);
+				$auction_url = Setting::$harpernet_auctions.'?MemberId='.$hash_cusid;
+			}
+			else
+			{
+				$auction_url = Setting::$harpernet_auctions;
+			}
+			drupal_goto($auction_url);
+			break;
+		case '/refer-friend':
+			global $user;   
+			$logged_in = user_is_logged_in();
+			$referral_url = 'home';
+			if($logged_in == true)
+			{
+				$hash_cusid = ah_secure_get_hash($user->member_data->CusId);
+				$referral_url = 'http://harpernet.andrewharper.com/HarperNET/Referral/Refer.aspx?MemberId='.$hash_cusid.'&KeyCode=POTRIAL&PubCode=PO';
+			}
+			elseif(isset($arg))//add elseif code here to process link from email (get memberid from email address )
+			{
+				$sql = "SELECT uid FROM users WHERE mail = '%s'";
+				$obj = db_fetch_array(db_query($sql, $arg));
+				$this_user = user_load($obj['uid']);				
+				//get user by email address passed in
+				$hash_cusid = ah_secure_get_hash($this_user->member_data->CusId);
+				$referral_url = 'http://harpernet.andrewharper.com/HarperNET/Referral/Refer.aspx?MemberId='.$hash_cusid.'&KeyCode=POTRIAL&PubCode=PO';
+			} 
+			else
+			{
+				$referral_url = 'home';
+			}			
+			drupal_goto($referral_url);
+			break;
+		default:
+			break;
+	}
+}
+
+function _andrewharper_get_uri(){
+	$uri = request_uri();
+	$uri_page = explode('/', $uri);
+	
+	if($uri_page[1] == 'refer-friend'){
+		$uri = '/refer-friend';
+		$arg = $uri_page[2];
+	}elseif($uri_page[1] == 'auctions'){
+		$uri = '/auctions';
+		$arg = $uri_page[2];
+	}
+	return $uri;
+}
+
+function _andrewharper_mobilesite_view($uri){
+	//user explicitly asked to view mobile site (in case we ever want to add a "view mobile site" link to the footer)
+	if ($uri == '/view-mobile-site' && isset($_COOKIE['viewfullsite'])) {
+		setcookie('viewfullsite', null);
+		drupal_goto('/home');		
+	}
+	if (!isset($_COOKIE['viewfullsite'])) {
+		switch($uri){					//pages that stop mobile detect script to force normal site view
+			case '/auctions':	
+				setcookie('viewfullsite', 'true', time() + 86400, '/'); //cookie expires in 24 hours
+				drupal_goto('/auctions');		
+			case '/view-full-site':		//user explicitly asked to view full site	
+				setcookie('viewfullsite', 'true', time() + 86400, '/'); //cookie expires in 24 hours
+				drupal_goto('/home');
+				break;
+		}
+	}	
+	if(!isset($_COOKIE['viewfullsite'])){
+		drupal_add_js('sites/all/themes/andrew_harper/js/mdetect.js');
+	}
+}
+
+function andrewharper_click_rule_trial_signin(){
+	global $user;
+	if($user->uid == 0){
+		global $js_enabled;
+		$js_enabled = false;
+		andrewharper_click_rule();
+	}
+		andrewharper_redirect();
+}
+
+function andrewharper_click_rule_check_ajax(){
+
+	if(arg(1) == true){
+		$js_enabled = true;
+	}
+	else{
+		$js_enabled = false;
+		drupal_set_message('Please enable javascript.', 'error', false);
+		//andrewharper_user_logout();
+	}
+	
+	//@KLUDGE Below it says "ip = get_sesssion_id" this is because we needed to
+	//quickly patch the system to behave differently without spending to much time
+	//rewriting behavoirs and variable names. therefore ip was left for consistency in code.
+	//rest assured, we are using the session_id to identify a user for clicks
+	$ip = get_session_id();
+	$result = db_fetch_object(db_query("SELECT * FROM {click_rule} WHERE ip = '%s'", $ip));
+		
+	// if there are too many clicks
+	if($result->clicks >= MAX_CLICKS) {
+		//andrewharper_user_logout();
+		//drupal_set_message("You have exceeded the number of clicks for your preview." , 'error', false);
+		//return drupal_json(array('data' => "<span>You have ".	$remaining ." clicks remaining</span>"));
+		return drupal_json(array('url' => '/velvet-rope'));	
+	}
+	else{
+		$remaining = MAX_CLICKS - $result->clicks;	
+		return drupal_json(array('data' => "<span>You have ".	$remaining ." clicks remaining</span>"));	
+	}
+}
+
+function andrewharper_click_rule(){
+	$uri = request_uri();
+	//watchdog("click rule", $uri, NULL, WATCHDOG_DEBUG);
+	
+	if(arg(0) != 'click_rule_ajax'){
+		global $user;
+		$node = node_load(arg(1));
+		$exempt = andrewharper_click_rule_exemption();
+		if(!$exempt){
+			if($user->uid == 52){
+				drupal_add_js(array('andrewharper' => array('trial' => true)), 'setting');
+			}
+						
+			//@KLUDGE Below it says "ip = get_sesssion_id" this is because we needed to
+			//quickly patch the system to behave differently without spending to much time
+			//rewriting behavoirs and variable names. therefore ip was left for consistency in code.
+			//rest assured, we are using the session_id to identify a user for clicks
+			$ip = get_session_id();			
+			$result = db_fetch_object(db_query("SELECT * FROM {click_rule} WHERE ip = '%s'", $ip));
+			$reset = time() - $result->timestamp;
+			//watchdog("click rule", $result->clicks, NULL, WATCHDOG_DEBUG);
+			//If its a new user and they have a valid ip
+			if(!$result && $ip != 'UNKNOWN'){
+				if(db_query("INSERT INTO {click_rule} (ip, clicks, timestamp) VALUES ('%s', %d, %d)", $ip, 0, time())){
+					//Activates click rule js					
+				}
+			}
+			//If its a old user and they are under the max number of clicks
+			elseif($result->clicks < MAX_CLICKS){				
+				db_query("UPDATE {click_rule} SET clicks = (clicks + 1) WHERE ip = '%s'", $ip);
+				$account = user_authenticate(array('name' => 'trial', 'pass' => 'trialpass'));				
+			}
+      
+			// If enough time has passed since the first click, reset the counter and log them in as trial
+			elseif($reset >= RESET_TIME){
+				db_query("UPDATE {click_rule} SET clicks = 0, timestamp = %d WHERE ip = '%s'", time(), $ip);			
+				$expired = false;
+				$account = user_authenticate(array('name' => 'trial', 'pass' => 'trialpass'));
+			}
+			// if they are over the number of clicks
+			elseif( ( $result->clicks >= MAX_CLICKS ) && ( $user->uid == 52 ) && ($uri != '/join') && ($uri != '/velvet-rope')){			
+				andrewharper_redirect('velvet-rope');
+			}
+		}
+	}
+}
+
+/**
+ * hook_nodeapi
+ * 
+ * run custom breadcrumb code
+ */
+function andrewharper_nodeapi($node, $op, $a3 = null, $a4 = null){
+	if($op == 'load' && arg(0) == 'node' ){
+		andrewharper_breadcrumb($node);
+	}
+}
+
+/**
+ * hook_form_alter
+ *
+ * 
+ */
+function andrewharper_form_alter(&$form, &$form_state, $form_id){
+	global $user;
+  
+  //modify hotel and villa edit forms to make title read-only
+	if($form_id == 'hotels_node_form' || $form_id == 'villas_node_form'){
+		if(in_array('Admin', array_values($user->roles))){
+			$form['title']['#description'] = 'Admin rights permit editing title. This setting is modifiable in the andrew harper module.';					
+		}
+		else{
+			$form['title']['#description'] = 'Title is read-only in drupal; please edit in BI-360.';
+			$form['title']['#attributes'] = array('readonly'=>'readonly', 'style'=>'background-color: #EBEBE4');
+			$form['#after_build'][] = 'andrewharper_after_location_built_function';
+		}
+	}
+
+	//modify search form (in utility bar)
+	if($form_id == 'search_block_form'){
+		//prevent error when search for back-slash "\"
+		if($form['#parameters'][1]['post']['search_block_form'] == '\\'){
+			drupal_set_message('Your search yielded no results');
+			drupal_goto('search');
+			return;
+		}		
+		
+		$form[$form_id] = array(
+			'#title' => t('Search by keyword, hotel, villa or region'),
+			'#type' => 'textfield',
+			'#size' => 18,
+			'#default_value' => '',
+			'#labelid' => 'utility-search-label',
+			'#attributes' => array('title' => t('Search by keyword, hotel, villa or region')),
+			'#id' => 'utility-search-field',
+		);
+        
+		$form['submit'] = array(
+			'#type' => 'submit', 
+			'#value' => t('SEARCH'),
+			'#id' => 'utility-search-button',
+		);
+      
+		$form['#validate'] = array();
+		unset($form['#token']);
+	}
+	  
+  if(strstr($form_id, 'webform')){
+		unset($form['#token']);
+	}
+	if(strstr($form_id, 'solr')){
+		unset($form['#token']);
+	}
+  
+  //modify comment form
+	if($form['#id'] == 'comment-form'){		
+
+		$screenNameArr = andrew_harper_fetch_comment_fullname($user->uid);
+		$screenName = $screenNameArr["name"];
+		$form['_author']['#title'] = 'Display Name';
+		$form['_author']['#value'] = $screenName;
+
+
+		//If this is the new comment form
+		if($form['comment_filter']['comment']['#default_value'] == ''){
+			$form['comment_filter']['comment']['#default_value'] = '';
+			$form['submit']['#value'] = 'Post New Comment';
+			$form['inappropriate'] = array(
+				'#value' => '<a id="inappropriate-content" href="mailto:moderator@andrewharper.com">Report Inappropriate Content</a>',
+				'#type' => 'markup',
+				'#weight' => 49
+			);
+		}
+		//If this is the edit a comment form
+		else{
+			$form['submit']['#value'] = 'Save This Comment';			
+		}
+		unset($form['preview']);// = 'Preview New Comment';
+		$form['submit']['#weight'] = 50;
+		
+	}
+	
+  //Adv. Search form theme and submit overrides
+	if($form['#id'] == 'views-exposed-form-Search-page-1'){
+		$form['#info']['filter-type']['label'] = '';
+		$form['#info']['filter-field_ratings_rating']['label'] = '';
+		$form['#info']['filter-country']['label'] = 'Country';
+		$form['type'] = array(
+			'#type' => 'checkboxes',
+			'#id' => 'property-type-checkbox',
+			'#options' => array('hotels' => 'Hotels','villas' => 'Villas'),
+			'#prefix' =>'Property Type',
+		);
+		/* this doesn't work yet
+		$form['special-offers'] = array(
+			'#type' => 'checkbox',
+			'#id' => 'special-offer-checkbox',
+			'#prefix' =>'<div class="online-booking-Yes tooltip" data="Property has a current Special Offer"></div>',
+			'#title' => t('Show properties with Special Offers'),
+		);*/
+		$form['field_online_booking_enabled_value'] = array(
+			'#type' => 'checkbox',
+			'#id' => 'online-booking-checkbox',
+			'#return_value' => "Yes",			
+			'#prefix' =>'<div class="online-booking-Yes tooltip" data="Property offers online booking"></div>',
+			'#title' => t('Show properties offering Online Booking'),	
+		);
+		$form['field_alliance_hotel_value'] = array(
+			'#type' => 'checkbox',
+			'#id' => 'alliance-checkbox',
+			'#return_value' => "Yes",			
+			'#prefix' =>'<div class="alliance-hotel-Yes tooltip" data="Property offers member benefits"></div>',
+			'#title' => t('Show properties offering member benefits'),	
+		);
+		$form['field_family_friendly_value'] = array(
+			'#type' => 'checkbox',
+			'#id' => 'family-checkbox',
+			'#prefix' =>'<div class="family-friendly-Yes tooltip" data="Property is family friendly"></div>',
+			'#return_value' => "Yes",
+			'#title' => t('Show Family Friendly properties'),	
+		);
+		$form['field_ratings_rating_op'] = array(
+			'#type' => 'checkbox',
+			'#id' => 'hummingbird-checkbox',
+			'#default_value' => 'empty',
+			'#return_value' => 'not empty',
+			'#prefix' =>'<div class="hummingbird tooltip" data="An Andrew Harper Favorite 500 property"></div>',
+			'#title' => t('Show Andrew Harper&#39;s Favorite 500 properties'),	
+		);
+		//$form['field_ratings_rating'] = array_merge( array('#tree' => false,), $form['field_ratings_rating']);
+		$form['field_ratings_rating']['#access'] = false;
+		$form['submit'] = array(
+			'#type' => 'submit',
+			'#value' => 'Search',
+			'#id' => 'edit-submit-Search',
+			'#weight' => 60,
+		);
+		$form['#submit'] = array_merge(array('andrewharper_search_form_submit'), $form['#submit']);
+	}
+
+  //More adv. search form theme and submit overrides
+	if($form['#id'] == 'views-exposed-form-Search-page-2'){
+		$form['#info']['filter-title']['label'] = 'Name of Hotel';
+
+		$form['submit'] = array(
+			'#type' => 'submit',
+			'#value' => 'Search',
+			'#id' => 'edit-submit-Search',
+			'#weight' => 60,
+		);
+		$form['#submit'] = array_merge(array('andrewharper_search_form_submit'), $form['#submit']);
+	}
+	
+  /**
+   * modify redirect after login
+   *
+   * This prevents going to member profile after login
+	 * Do not remove this unless you are sure you have handled logins going to the member profile screen
+   */
+	if ($form_id == 'user_login_block' || $form_id == 'user_login') {
+		if(drupal_get_destination() == 'destination=user'){
+			$form['#action'] = url('user', array("query" => 'destination=home'));
+		}
+		elseif(drupal_get_destination() == 'destination=velvet-rope'){
+			$form['#action'] = url('velvet-rope', array("query" => 'destination=home'));
+		}
+		elseif(!isset($form['#action'])){
+			$form['#action'] = url('user', array("query" => 'destination=home'));
+		}
+	}
+}
+
+// Location CCK fields can not be overwritten with form_alter; we must use the after_built hook to hide elements
+// This function is only called if the user is non-admin. The function changes the location fields to hidden 
+// fields, except lat & long. 
+function andrewharper_after_location_built_function($form_element, &$form_state) {	
+	$element = $form_element['field_location_geo'][0];
+	$element['delete_location']['#type'] = 'hidden';
+	$element['street']['#type'] = 'hidden';
+	$element['additional']['#type'] = 'hidden';
+	$element['city']['#type'] = 'hidden';
+	$element['province']['#type'] = 'hidden';
+	$element['postal_code']['#type'] = 'hidden';
+	$element['country']['#type'] = 'hidden';
+	$form_element['field_location_geo'][0] = $element;
+	return $form_element;
+}
+
+function andrewharper_search_form_submit($form, $form_state){
+	if($form_state['values']['special-offers'] == 1){
+		$form_state['view']->relationship['vid']->options['required']=1;
+	}
+	if($form_state['values']['field_ratings_rating_op'] == 'empty'){
+		array_shift($form_state['view']->sort);
+	}
+}
+
+function andrewharper_block($op = 'list', $delta = 0, $edit = array()) {
+	$blocks = array();
+	if ($op == 'view') {
+		if ($voc = taxonomy_vocabulary_load($delta)) {
+			$blocks['subject'] = variable_get('tagadelic_block_title_'. $delta, t('Tags: '));
+			$tags = tagadelic_get_weighted_tags(array($voc->vid), variable_get('tagadelic_levels', 6), variable_get('tagadelic_block_tags_'. $delta, 12));
+			$terms = tagadelic_sort_tags($tags);
+			$blocks['content'] = theme('tagadelic_weighted', $tags);//return a chunk of 12 tags
+			if (count($tags) >= variable_get('tagadelic_block_tags_'. $delta, 12)) {
+				$blocks['content'] .= theme('tagadelic_more', $voc->vid);//add more link
+			}
+		}
+		elseif (arg(0) == 'node' && is_numeric(arg(1)) && $node = node_load(arg(1))) {
+			$blocks['subject'] = t('Tags for @title', array('@title' => $node->title));
+			$blocks['content'] = ah_tagadelic_tags_lists($node, $delta);
+		}
+
+		return $blocks;
+	}
+	elseif ($op == 'list') {
+		foreach (taxonomy_get_vocabularies() as $voc) {
+			$blocks[$voc->vid]['info'] = variable_get('tagadelic_block_title_'. $voc->vid, t('Tags in @voc', array('@voc' => $voc->name)));
+			$blocks[$voc->vid]['cache'] = BLOCK_CACHE_GLOBAL;
+		}
+		$blocks[0]['info'] = t('AH Tags');
+		$blocks[0]['cache'] = BLOCK_CACHE_PER_PAGE;
+		$blocks['advsearch']['info'] = t('Advanced Search Block');
+		$blocks['advsearch']['cache'] = BLOCK_CACHE_GLOBAL;
+		return $blocks;
+	}
+	elseif ($op == 'configure') {
+		$voc = taxonomy_vocabulary_load($delta);
+		$form = array();
+		$form['tags'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Tags to show'),
+      '#default_value' => variable_get('tagadelic_block_tags_'. $delta, 12),
+      '#maxlength' => 3,
+      '#description' => t('The number of tags to show in this block.'),
+		);
+		return $form;
+	}
+	elseif ($op == 'save') {
+		variable_set('tagadelic_block_tags_'. $delta, $edit['tags']);
+		return;
+	}
+}
+
+function ah_tagadelic_tags_lists($node, $delta = 0) {
+	if (is_array($node->tags)) {
+		$output = 'Tags: ';
+		
+		// get the maximum tags to be displayed on page
+		$maxTags = variable_get('tagadelic_block_tags_' . $delta, 5);
+
+		foreach ($node->tags as $vid => $terms) {
+
+			$vocabulary = taxonomy_vocabulary_load($vid);
+			foreach ($terms as $term) {
+				$count = count($terms);
+				if($count-1 == $i || $i == $maxTags - 1){
+					$output .= l($term->name, taxonomy_term_path($term), array('attributes' => array('rel' => 'tag'))) ;
+				}
+				else $output .= l($term->name, taxonomy_term_path($term), array('attributes' => array('rel' => 'tag'))) .", ";
+				$i++;
+				
+				if($i == $maxTags)
+					break;
+			}
+
+		}
+		return $output;
+	}
+}
+
+function andrewharper_action_info() {
+	return array(
+    'andrewharper_update_locations_action' => array(
+      'type' => 'node',
+      'description' => t('Update node locations'),
+      'configurable' => FALSE,
+      'behavior' => array('changes_node_property'),
+	),
+	);
+}
+
+function andrewharper_update_locations_action($node) {
+	if(_nodehierarchy_get_menu($node->nid) == null){
+		$node->nodehierarchy_create_menu = true;
+		_nodehierarchy_create_menu($node);
+			
+	}
+
+}
+
+function andrewharper_views_pre_render(&$view){
+	static $once = 4;
+	if($view->name == 'Articles' ){
+
+		$view->result = array_intersect_key($view->result, array_unique(array_map('serialize', $view->result)));
+	}
+	if($view->name == 'Regions' && $view->build_info['title'] == 'Related Article Content'){
+		//dpm($view, 'view');
+		foreach($view->result as $item){
+			unset($item->nid);
+		}
+		$view->result = array_intersect_key($view->result, array_unique(array_map('serialize', $view->result)));
+	}
+	if($view->name == 'Hotels' && $view->build_info['title'] == 'Region Hotels'){
+		$nid = arg(1);
+		foreach($view->result as $key => $item){
+			if($item->node_node_data_field_regions_1_nid == $nid){
+				unset($view->result[$key]);
+			}
+		}
+
+	}
+}
+
+function andrewharper_breadcrumb($node = array()){
+	if($node->type == 'hotels' || $node->type == 'villas'){
+		$full = content_storage('load',$node);
+
+		$parent = node_load($full['field_regions'][0]['nid']);
+		nodehierarchy_set_breadcrumbs($parent, true);
+	}
+}
+
+function andrewharper_role_check(){
+	global $user;
+	$roles = array_intersect($user->roles, array('anonymous', 'trial'));
+	if($user->uid == 0) return false;
+	return empty($roles);
+}
+
+function andrewharper_title(){
+	if(is_numeric(arg(1))) $nid = arg(1);
+	return db_result(db_query("SELECT title FROM {node} WHERE nid = %d", $nid));
+}
+
+//This function returns the Session ID stored in the users cookies.
+function get_session_id(){
+	//watchdog("ah.module", 'get_session_id'.$_COOKIE['session_id'], NULL, WATCHDOG_DEBUG);
+	return $_COOKIE['session_id'];
+}
+
+function getIP() {
+	if (getenv("HTTP_CLIENT_IP"))
+		$ip = getenv("HTTP_CLIENT_IP");
+	else if(getenv("HTTP_X_FORWARDED_FOR"))
+		$ip = getenv("HTTP_X_FORWARDED_FOR");
+	else if(getenv("REMOTE_ADDR"))
+	$ip = getenv("REMOTE_ADDR");
+	else
+		$ip = "UNKNOWN";
+	return $ip;
+}
+
+//THIS FUNCTION SEEMS TO BE A COMPLETE COPY OF USER_LOGOUT, WHAT IS THE POINT?
+//IT COULD CALL USER_LOGOUT AND THEN KEEP THE CODE FOR THE REDIRECT, REWRITE @KLUDGE
+/* MPC can we delete this???? 20110812*/
+function andrewharper_user_logout($redirect = null) {
+	global $user;
+
+	watchdog('user', 'Session closed for %name.', array('%name' => $user->name));
+
+	// Destroy the current session:
+	session_destroy();
+	// Only variables can be passed by reference workaround.
+	$null = NULL;
+	user_module_invoke('logout', $null, $user);
+
+	// Load the anonymous user
+	$user = drupal_anonymous_user();
+
+	if($redirect != null){
+		drupal_goto($redirect);
+	}
+}
+
+function andrewharper_expire(){
+	global $user;
+	return $user->current_subscriptions->ExpireDate;
+}
+
+function andrewharper_address_info($info){
+	global $user;
+	return $user->member_data->Address->$info;
+}
+
+function _andrewharper_is_in_renewal_window(){
+	$expire = andrewharper_renew_date();	
+	$expire_date = new DateTime($expire);	
+	$window = new DateInterval(Setting::$renewal_window_months);	
+	$renewal_date = $expire_date->sub($window);
+	if($renewal_date <= date_create()){
+		return TRUE;
+	}
+	return FALSE;
+}
+	
+function andrewharper_get_renewal_url(){
+	$output = '';
+	if(_andrewharper_is_in_renewal_window()){
+		global $user;
+		$renCode = $user->current_subscriptions->renewalkeycode;		
+		
+		//If SFG did not return a keycode, use one of the defaults
+		if(is_null($renCode) || empty($renCode)){
+			$postal = $user->member_data->Address->PostalCode;
+			if(strpos($postal, '-')){
+				$postal = substr($postal, 0, strpos($postal, '-'));
+			}
+		
+			$output = "https://ssl.drgnetwork.com/ecom/aht/cgi/renew/order?org=AHT&publ=";
+			$output .= $user->member_data->subscription->publicationcode;
+			$output .= "&customerno=";
+			$output .= $user->member_data->MemberId;
+			$output .= "&postcode=";
+			$output .= $postal;
+			return $output;
+		}
+		
+		$output = "https://ssl.drgnetwork.com/ecom/AHT/cgi/emailrenew/order?org=aht&publ=";
+		$output .= $user->member_data->subscription->publicationcode;
+		$output .= "&customerno=";
+		$output .= $user->member_data->MemberId;
+		$output .= "&key=";
+		$output .= $renCode;
+	}
+	return $output;
+}
+
+function andrewharper_request_rate(){
+	if(arg(0) ==  'node' && is_numeric(arg(1))){
+		$node = node_load(arg(1));
+		global $user;
+
+		$threeDays = date('m/d/Y', strtotime('+3 days'));
+  		$sixDays = date('m/d/Y', strtotime('+6 days'));
+  		$hid = $node->field_booking_id[0]['value'];
+		$mid = $user->member_data->CusCustNum;
+  		$action = $node->field_olb_url[0]['value'];
+		$check = andrewharper_role_check();
+		//var_export($user);
+	//if($node->field_online_booking_enabled[0]['value'] == 'Yes' && $check){
+	if($node->field_online_booking_enabled[0]['value'] == 'Yes' 
+		&& $check 
+		&& $user->name != 'discovery'
+		&& $user->name != 'premieronline'
+		&& $user->name != 'premier1'
+		&& $user->name != 'pressguest'
+		&& $user->name != 'standard'){
+		$output = '
+			<div id="reserve-hotel">
+    	<form id="request-rate" action="'.Setting::$harpernet_reservations.'" method="get">
+    		<h2>Reserve this Hotel</h2>
+    		<div class="bookdates reserve-fromdate">
+    			<label for="fromdate">Start Date</label>
+                <div class="date-container">
+                    <input type="text" value="'.$threeDays .'" name="fromdate" id="fromdate" />
+                </div>
+    		</div>
+    		<div class="bookdates reserve-todate">
+    			<label for="todate">End Date</label>
+                <div class="date-container">
+                    <input type="text" value="'.$sixDays .'" name="todate" id="todate" />
+                </div>
+    		</div>
+    		<div class="Adults">
+    			<label for="Adults">Adults</label>
+    			<select name="Adults" id="Adults">
+    				<option selected="selected" value="1">1</option>
+    				<option value="2">2</option>
+    				<option value="3">3</option>
+    				<option value="4">4</option>
+    			</select>
+    		</div>
+        <div class="book-submit">
+          <span id="req-rate-hotel">
+            <a href="/request-rate?'.
+              'hid=' . $hid .
+              '&mid=' . $mid . 
+              '&name=' . urlencode($node->title) . 
+              '&fname=' . urlencode($user->member_data->FirstName) . 
+              '&lname=' . urlencode($user->member_data->LastName) . 
+              '&email=' . urlencode($user->member_data->Email) . 
+              '&city=' . urlencode($node->field_location_geo[0]['city']) . 
+              '">
+              Request a rate instead.
+            </a></span>'.
+	    		//<div class="booking-help"></div>
+             	'<input type="hidden" value="1" name="roomcount" id="roomcount" />       
+             	<input type="hidden" value="'.$action. '" name="params" id="params" />       
+             	<input type="hidden" value="0" name="Children" id="Children" />       
+               	<input type="hidden" value="'.$mid.'" name="MemberId" id="MemberId" />
+				<input id="booking-submit" type="submit" value="Check Availability"/>
+    		</div>
+    	</form>
+    </div>';
+		}
+		elseif($node->field_online_booking_enabled[0]['value'] == 'Yes' && !$check){
+		 	$output = '<div id="reserve-hotel">
+								<a href="/user">
+						<img src="/sites/all/themes/andrew_harper/images/AH/online_book.png" />
+					</a>
+				</div>';
+			
+		}
+		else{
+			// for non-logged in users, go to /user
+			
+			if (!$check)
+			{
+				$output = '<div id="req_rate_hotel">
+					<a href="/user">
+						<img src="/sites/all/themes/andrew_harper/images/AH/REQUESTaRATE_grey.png" height="147" width="322"/>
+					</a>
+				</div>';
+			} 
+			else
+			{
+				$output = '<div id="req_rate_hotel">
+					<a href="/request-rate?' .
+						'hid=' . $hid .
+						'&mid=' . $mid . 
+						'&name=' . urlencode($node->title) . 
+						'&fname=' . urlencode($user->member_data->FirstName) . 
+						'&lname=' . urlencode($user->member_data->LastName) . 
+						'&email=' . urlencode($user->member_data->Email) . 
+						'&city=' . urlencode($node->field_location_geo[0]['city']) . 
+						'">
+						<img src="/sites/default/files/SiteImages/BT_Images/REQUESTaRATE.png" height="147" width="322" />
+					</a>
+				</div>';
+			}
+		}
+		return $output;
+	}
+}
+
+function andrewharper_redirect( $path = '' ){
+	$url = url($path);
+	header("Location:$url");
+	exit();
+}
+
+function ah_locations(){
+	$query = "SELECT nid FROM {node} WHERE type='hotels'";
+	$result = db_query($query);
+	$i = 1;
+	while ($nid = db_result($result)) {
+		if($i){ $node = node_load($nid);
+
+		if($node->field_location_geo[0]['latitude'] == 0){
+			$latlon = location_latlon_exact($node->location);
+			$node->field_location_geo[0]['latitude'] = $latlon['lat'];
+			$node->field_location_geo[0]['longitude'] = $latlon['lon'];
+			$node = node_submit($node);
+			node_save($node);
+			$i = 0;
+	 }
+		}
+	}
+	return 'Locations Complete';
+}
+
+function andrewharper_click_rule_exemption(){	
+	$uri = request_uri();
+	
+	if(is_numeric(arg(1))){	
+		$node = node_load(arg(1));
+		if($node->type == 'hideaway_report'){
+			return true;
+		}
+	}	
+	//This should be done using an Admin TextBox
+	
+	switch( $uri ){
+		case '/advanced-search':
+		case '/hideaway-report-archive':
+		case '/':
+			return true;
+			break;
+	    default:
+			break;
+	}
+	
+	if(arg(0) == 'node' && is_numeric(arg(1))){
+		$node = node_load(arg(1));
+		if(strtolower($node->field_click_rule[0]['value']) == "yes"){
+			return true;
+		}
+	}
+	return false;
+}
+
+function andrewharper_dump_backtrace($file = 'C:\temp\dump.txt'){
+	$msg = print_r(debug_backtrace(), true);
+	$handle = fopen($file, 'w');
+	fwrite($handle, $msg);
+	fclose($handle);	
+}
+
+function print_ar($array, $count=0) {
+    $i=0;
+    $tab ='';
+    while($i != $count) {
+        $i++;
+        $tab .= "&nbsp;&nbsp;|&nbsp;&nbsp;";
+    }
+    foreach($array as $key=>$value){
+        if(is_array($value)){
+            echo $tab."[<strong><u>$key</u></strong>]<br />";
+            $count++;
+            print_ar($value, $count);
+            $count--;
+        }
+        else{
+            $tab2 = substr($tab, 0, -12);
+            echo "$tab2~ $key: <strong>$value</strong><br />";
+        }
+        $k++;
+    }
+    $count--;
+}
+
+function andrewharper_render_comment_special_order($nodeId, $conf) {
+	$node = node_load($nodeId, null, true);
+
+	$settings =Array(
+			mode => 4,
+			order => 1,
+			comments_per_page => 10,
+			anchor => 1,
+			context => 'argument_nid_1',
+			override_title => 0,
+			override_title_text => ''
+		);
+		
+	print(andrewharper_comment_render($node, $settings));	  
+}
+
+/**
+ * This function was cribbed from the ctools_comment_render function in the chaos tools module (/sites/all/modules/ctools/plugins/content_types/node_context/node_comments.inc)
+ * These comments appeared above that function, and so I'm pasting them here as well:
+ *
+ * This function is a somewhat stripped down version of comment_render
+ * that removes a bunch of cruft that we both don't need, and makes it
+ * difficult to modify this.
+ */
+function andrewharper_comment_render($node, $conf) {
+  $output = '';
+  if (!user_access('access comments') || !$node->comment) {
+    return;
+  }
+
+  $mode = $conf['mode'];
+  $order = $conf['order'];
+  $comments_per_page = $conf['comments_per_page'];
+
+  // Multiple comment view
+  $query_count = 'SELECT COUNT(*) FROM {comments} c WHERE nid = %d';
+
+  if (db_column_exists('users', 'signature_format')) {
+    //We run drupal version > 6.13, users table has signature_format column
+    $query = 'SELECT c.cid AS cid, c.pid, c.nid, c.subject, c.comment, c.format, c.timestamp, c.name, c.mail, c.homepage, u.uid, u.name AS registered_name, u.picture, u.signature, u.signature_format, u.data, c.thread, c.status, parent_user.uid as parent_uid, parent_user.data as parent_data, parent_user.name as parent_name, parent_user.picture as parent_picture FROM {comments} c INNER JOIN {users} u ON c.uid = u.uid LEFT OUTER JOIN {comments} parent ON c.pid = parent.cid LEFT OUTER JOIN {users} parent_user ON parent.uid = parent_user.uid WHERE c.nid = %d';
+  }
+  else {
+    //We run outdated drupal version <= 6.13, users table doesn't have signature_format column
+    $query = 'SELECT c.cid AS cid, c.pid, c.nid, c.subject, c.comment, c.format, c.timestamp, c.name, c.mail, c.homepage, u.uid, u.name AS registered_name, u.picture, u.signature, u.data, c.thread, c.status, parent_user.uid as parent_uid, parent_user.data as parent_data, parent_user.name as parent_name, parent_user.picture as parent_picture FROM {comments} c INNER JOIN {users} u ON c.uid = u.uid LEFT OUTER JOIN {comments} parent ON c.pid = parent.cid LEFT OUTER JOIN {users} parent_user ON parent.uid = parent_user.uid WHERE c.nid = %d';
+  }
+
+  $query_args = array($node->nid);
+  if (!user_access('administer comments')) {
+    $query       .= ' AND c.status = %d';
+    $query_count .= ' AND status = %d';
+    $query_args[] = COMMENT_PUBLISHED;
+  }
+
+  /*
+  if ($order == COMMENT_ORDER_NEWEST_FIRST) {
+    if ($mode == COMMENT_MODE_FLAT_COLLAPSED || $mode == COMMENT_MODE_FLAT_EXPANDED) {
+      $query .= ' ORDER BY c.timestamp DESC';
+    }
+    else {
+      $query .= ' ORDER BY c.thread DESC';
+    }
+  }
+  else if ($order == COMMENT_ORDER_OLDEST_FIRST) {
+    if ($mode == COMMENT_MODE_FLAT_COLLAPSED || $mode == COMMENT_MODE_FLAT_EXPANDED) {
+      $query .= ' ORDER BY c.timestamp';
+    }
+    else {
+      $query .= ' ORDER BY SUBSTRING(c.thread, 1, (LENGTH(c.thread) - 1))';
+    }
+  }
+  */
+  // $query .= " order by left(c.thread, locate('.', replace(c.thread, '/', '.')) - 1) desc, c.thread";
+  $query .= " order by left(c.thread, locate('.', replace(c.thread, '/', '.')) - 1) desc, right(c.thread, char_length(c.thread) - locate('.', replace(c.thread, '/', '.')))";
+  
+  $query = db_rewrite_sql($query, 'c', 'cid');
+  $query_count = db_rewrite_sql($query_count, 'c', 'cid');
+
+  // Start a form, for use with comment control.
+  $result = pager_query($query, $comments_per_page, 0, $query_count, $query_args);
+
+  $divs = 0;
+  $last_depth = 0;
+  drupal_add_css(drupal_get_path('module', 'comment') .'/comment.css');
+ 
+  while ($comment = db_fetch_object($result)) {
+	
+    $comment = drupal_unpack($comment);
+    $comment->name  = $comment->uid ? $comment->registered_name : $comment->name;
+    $comment->depth = count(explode('.', $comment->thread)) - 1;
+
+    if ($mode == COMMENT_MODE_THREADED_COLLAPSED || $mode == COMMENT_MODE_THREADED_EXPANDED) {
+      if ($comment->depth > $last_depth) {
+        $divs++;
+        $output .= '<div class="indented">';
+        $last_depth++;
+      }
+      else {
+        while ($comment->depth < $last_depth) {
+          $divs--;
+          $output .= '</div>';
+          $last_depth--;
+        }
+      }
+    }
+	
+    if ($mode == COMMENT_MODE_FLAT_COLLAPSED) {
+      $output .= theme('comment_flat_collapsed', $comment, $node);
+    }
+    else if ($mode == COMMENT_MODE_FLAT_EXPANDED) {
+      $output .= theme('comment_flat_expanded', $comment, $node);
+    }
+    else if ($mode == COMMENT_MODE_THREADED_COLLAPSED) {
+      $output .= theme('comment_thread_collapsed', $comment, $node);
+    }
+    else if ($mode == COMMENT_MODE_THREADED_EXPANDED) {
+      $output .= theme('comment_thread_expanded', $comment, $node);
+    }
+  }
+  for ($i = 0; $i < $divs; $i++) {
+    $output .= '</div>';
+  }
+  $output .= theme('pager', NULL, $comments_per_page, 0);
+
+  if (!empty($conf['anchor'])) {
+    $output = '<div id="comments">' . $output . '</div>';
+  }
+  return $output;
+}
+
+function andrewharper_watchdog_debug($type = '', $message = ''){
+	if($message && Setting::$enable_watchdog_debug){
+		watchdog($type, $message, NULL, WATCHDOG_DEBUG);
+	}
+}
+
+function andrew_harper_link_alter(&$links, $node, $comment = null)
+{
+	if($node->type == "forum")
+	{
+		
+		if(array_key_exists("notifications_1", $links) )
+		{
+			// Derive the display name of the current post
+			$arr = andrew_harper_fetch_comment_fullname($node->uid);
+			$name = ($arr["name"] == "Andrew Harper Member" || empty($arr["name"]) ? "this author" : $arr["name"]);
+			$screenName = andrew_harper_fetch_comment_fullname($node->uid);
+			
+			// Find the correct link and update the title
+			$format = "Subscribe to: Posts by";					
+			foreach(array_keys($links) as $key)
+			{
+				if(substr($links[$key]["title"], 0, strlen($format)) === $format)
+					$links[$key]["title"] = $format . " " . $name;
+			}
+				
+		}
+		
+	}
+	
+	foreach ($links as $module => $link) {
+		if (strstr($module, 'taxonomy_term')) {
+		  // Link back to the forum and not the taxonomy term page
+		  $links[$module]['href'] = str_replace('taxonomy/term', 'forum', $link['href']);
+		}
+	}
+}
+
+
+function andrewharper_renew_date($dateFormat = 'F, Y'){
+	global $user;
+	$date = strtotime($user->member_data->subscription->expiredate);
+	return date($dateFormat, $date);
+}
+

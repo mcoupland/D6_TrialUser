@@ -1,0 +1,159 @@
+<?php
+// ================
+// locals contains the service and harpernet urls (root htdocs folder)
+// ================
+include_once './locals.php';
+
+// $Id$
+
+/**
+ * @file
+ * A list of functions that can be called in order to make relevant calls to secureservices.asmx
+ */
+
+function ah_secure_menu(){
+	$items['updatepass'] = array(
+		'title'	=> 'Update Password',
+		'page callback'	=>	'ah_secure_update_page',
+		'access arguments' => array('access content'),
+		'type'	=> MENU_CALLBACK
+	);
+	$items['updatepass/%'] = array(
+		'title'	=> 'Update Password',
+		'page callback'	=>	'ah_secure_update_page',
+		'page arguments' => array(1),
+		'access callback' =>array('access content'),
+		'type'	=> MENU_CALLBACK
+	);
+	return $items;
+}
+
+//This function is to replace function andrewharper_login_createHash($x)
+function ah_secure_get_hash($x = ''){
+	//return empty hash if user won't give us the values we want
+	if (empty($x)) return '';
+	
+    $key = md5('9570008C47434E29B8F8F7B66820F768');
+	$date = md5(date('Ymd', strtotime('now')));
+	$pass = base64_encode($x);
+
+    return $key.'-'.$date.'-'.$pass;	
+}
+
+function ah_secure_update_page( $newpass = '' ){	
+	global $user;		
+	$result = FALSE;
+	
+	andrewharper_watchdog_debug('ah_secure', 'user: '.$user->name.', update_password: '.$newpass);
+	$newpass = ah_secure_encrypt( $newpass );	
+	
+	$wsdl = Setting::$harperservice_secureservice.'?wsdl';
+	$client = new SoapClient($wsdl,array('trace' => 1, 'exceptions' => 0));
+	$update_result = $client->UpdatePassword(array(
+		'username' => $user->name, 
+		'enc_newpassword' => $newpass,
+	));
+	
+	$modals_path = base_path().drupal_get_path('module', 'ah_modals');		
+	$success = $update_result->UpdatePasswordResult->anyType[0];
+	$error = $update_result->UpdatePasswordResult->anyType[1];
+	
+	$success = TRUE;
+	if($success){	
+		$result = TRUE;
+	}
+	$result_array = array('result' => $result);
+	return drupal_json($result_array);
+	exit;
+}
+
+function ah_secure_encrypt($value){
+	if (empty($value)) return '';
+	$td = mcrypt_module_open(MCRYPT_RIJNDAEL_128, '', MCRYPT_MODE_CBC, '');
+	$iv = Setting::$iv;
+	$key = Setting::$key256;
+    mcrypt_generic_init($td, $key, $iv);
+    $encrypted = bin2hex(mcrypt_generic($td, $value));
+    mcrypt_generic_deinit($td);
+    mcrypt_module_close($td);
+	
+	return $encrypted;
+}
+
+function ah_secure_decrypt($encrypted){
+	if (empty($encrypted)) return '';
+	$iv = Setting::$iv;
+	$key = Setting::$key256;	
+	$td = mcrypt_module_open(MCRYPT_RIJNDAEL_128, '', MCRYPT_MODE_CBC, '');
+    mcrypt_generic_init($td, $key, $iv);
+    $decrypted = mdecrypt_generic($td, pack("H*" , $encrypted));
+	mcrypt_generic_deinit($td);
+    mcrypt_module_close($td);
+	
+	return str_replace("\0", "", $decrypted);
+}
+
+/**
+ * Modified by mcoupland to validate card length and check digit per card type
+ * Luhn algorithm number checker – (c) 2005-2008 shaman – www.planzero.org 
+ * This code has been released into the public domain, however please      
+ * give credit to the original author where possible.                      
+ */
+function ahsecure_do_luhn_check($number, $card_type) {
+	// Strip any non-digits (useful for credit card numbers with spaces and hyphens)
+	$number=preg_replace(‘/\D/’, ”, $number);
+	$is_valid = false;
+	
+	switch(card_type){
+		case "mastercard":
+			if (strlen($number) == 16 
+				&& substr($number, 0, 1) == "5" 
+				&& int.Parse(number.Substring(1, 1)) >= 1
+				&& int.Parse(number.Substring(1, 1)) <= 5)
+			{
+				$is_valid = TRUE;
+			}
+			break;
+		case "visa":
+			if ((strlen($number) == 13 
+				|| strlen($number) == 16)
+				&& substr($number, 0, 1) == "4")
+			{
+				$is_valid = TRUE;
+			}
+			break;
+		case "americanexpress":
+			if (strlen($number) == 15
+				&& (substr($number, 0,2) == "34"
+				|| substr($number, 0, 2) == "37"))
+			{
+				$is_valid = TRUE;
+			}
+			break;
+	}
+	
+	if($is_valid){
+		// Set the string length and parity
+		$number_length=strlen($number);
+		$parity=$number_length % 2;
+
+		// Loop through each digit and do the maths
+		$total=0;
+		for ($i=0; $i<$number_length; $i++) {
+			$digit=$number[$i];
+			// Multiply alternate digits by two
+			if ($i % 2 == $parity) {
+				$digit*=2;
+				// If the sum is two digits, add them together (in effect)
+				if ($digit > 9) {
+					$digit-=9;
+				}
+			}
+			// Total up the digits
+			$total+=$digit;
+		}
+		// If the total mod 10 equals 0, the number is valid
+		return ($total % 10 == 0) ? TRUE : FALSE;
+	}
+	return false;
+}
